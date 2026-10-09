@@ -2,6 +2,11 @@
 
 ## [1.2.0] - 2026-10-09
 
+### Security
+
+- Оновлено `go-jose`, `x/crypto`, `x/net`, `x/text` та gRPC до виправлених версій разом із потрібними транзитивними залежностями.
+- Мінімальна версія Go для збірки, CI та release підвищена до `1.26.9`, яка містить виправлення standard library; minor-версію Go збережено.
+
 ### Added
 
 - Початковий `ory_external_user`: create, authoritative read, delete та import через захищений execution API.
