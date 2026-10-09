@@ -1,4 +1,4 @@
-// Package provider implements the nitra/hydra OpenTofu/Terraform provider for
+// Package provider implements the nitra/ory OpenTofu/Terraform provider for
 // self-hosted Ory Hydra (Admin API) on terraform-plugin-framework.
 //
 // Originally derived from github.com/svrakitin/terraform-provider-hydra
@@ -189,7 +189,7 @@ func (p *hydraProvider) Configure(ctx context.Context, req provider.ConfigureReq
 
 	hc := hydra.NewConfiguration()
 	hc.HTTPClient = httpClient
-	hc.UserAgent = "terraform-provider-hydra/" + p.version
+	hc.UserAgent = "terraform-provider-ory/" + p.version
 	base := strings.TrimRight(u.String(), "/")
 	hc.Servers = hydra.ServerConfigurations{{URL: base}}
 

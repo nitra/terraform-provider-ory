@@ -1,10 +1,15 @@
 ---
-page_title: "Provider: Hydra (self-hosted Ory Hydra)"
+page_title: "Provider: Ory (self-hosted, Nitra)"
 description: |-
   Manage OAuth2 clients and jwt-bearer trust relationships of a self-hosted Ory Hydra through its Admin API.
 ---
 
-# Hydra Provider
+# Ory Provider від Nitra
+
+Незалежний provider `nitra/ory` для self-hosted Ory, не офіційний `ory/ory` для Ory Network.
+Наразі реалізовано Hydra resources; Kratos/user execution resources ще не додані.
+Локальне ім’я `hydra` та існуючі `hydra_*` resources збережені для сумісності.
+Міграція з `nitra/hydra` описана у `docs/guides/migration-to-ory.md`.
 
 Manages a **self-hosted** [Ory Hydra](https://github.com/ory/hydra) through its Admin API.
 Built and tested against `oryd/hydra:v26.2.0` (the Go client is generated from that exact tag).

@@ -1,4 +1,4 @@
-module github.com/nitra/terraform-provider-hydra
+module github.com/nitra/terraform-provider-ory
 
 go 1.26.0
 

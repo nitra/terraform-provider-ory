@@ -19,7 +19,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nitra/terraform-provider-hydra/internal/testhydra"
+	"github.com/nitra/terraform-provider-ory/internal/testhydra"
 )
 
 func setup(t *testing.T) {

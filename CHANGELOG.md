@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.1.0] - 2026-10-09
+
+### Changed
+
+- Код та історію перенесено в незалежний `nitra/terraform-provider-ory`; походження й ліцензії збережені.
+- Go module, binary та provider address підготовлені для `registry.opentofu.org/nitra/ory`.
+- Існуючі `hydra_*` resources, локальне ім’я `hydra` та schemas збережені без змін.
+- Додано інструкцію безпечної міграції state; release і registry publication ще не виконані.
+
 ## Unreleased
 
 ### Changed
