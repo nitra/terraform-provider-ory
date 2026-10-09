@@ -1,0 +1,54 @@
+---
+page_title: "External користувачі через execution API"
+subcategory: "Guides"
+description: |-
+  Контракт, безпечний lifecycle та межі першої реалізації ory_external_user.
+---
+
+# External користувачі
+
+`ory_external_user` керує external members тільки через захищений execution API, не через Kratos Admin API. Сервер визначає тип, роль і дозволені metadata. Provider не є security boundary: право на кожну організацію та операцію перевіряє backend.
+
+## Статус інтеграції
+
+Реалізовано provider client/schema та mock acceptance tests зі справжнім OpenTofu. **Live використання заблоковане** до backend integration: точкового GET, authoritative absence code та погодженої CI machine authorization. Поточний admin-api має create/delete/list і перевіряє активного Kratos адміна; звичайний Forgejo JWT subject цієї перевірки не пройде.
+
+Не передавайте браузерний token адміна в CI/state і не обходьте backend прямим доступом до Kratos. PR creation, approval policy, saved plan binding та operation status UI — окремий orchestration layer, не функції provider.
+
+## Конфігурація
+
+{{ tffile "examples/resources/ory_external_user/resource.tf" }}
+
+Блок `user_api` незалежний від Hydra `endpoint` і `authentication`. Без user_api resource відмовляє у виконанні. Для user-only конфігурації Hydra endpoint не обов’язковий; у `hydra_*` resources він лишається обов’язковим. Збережений local provider name `hydra` потребує явного `provider = hydra` в `ory_external_user`.
+
+Endpoint/token_file можна передати через `ORY_ADMIN_ENDPOINT` / `ORY_ADMIN_TOKEN_FILE`, але сам блок `user_api {}` має бути присутнім. Значення credentials не входить у HCL/resource state; provider перечитує token file перед кожним запитом. Файл і CI environment потребують захисту. Redirect заборонений, TLS verification увімкнена, HTTP дозволений лише на loopback для tests.
+
+`create_request_id` — UUID, згенерований UI/оператором один раз і зафіксований у Git. Не використовуйте `uuid()`/`timestamp()` у HCL. Для справді нового створення після видалення потрібен новий UUID: старий idempotency key може повернути кешований результат із уже видаленою identity. Saved plan зберігає ключ, але server-side reservation має TTL і прив’язку до actor/client/body. Timeout чи ambiguous mutation потребують перевірки identity та import, не сліпого нового apply.
+
+## Lifecycle
+
+- Create: тільки email/name; UUID отримуємо від backend, без другого HTTP-запиту після mutation.
+- Read: точковий authoritative GET за UUID. List/search не використовується для визначення absence.
+- Import: точна identity за UUID в конкретній організації; backend повторно перевіряє її management policy.
+- Update: email/name/організація/create_request_id заблоковані під час plan; implicit replacement не виконується. Дозволена лише локальна зміна deletion_reason.
+- Delete: email confirmation і остання збережена deletion_reason. Змініть причину окремим apply **до** вилучення resource з HCL; старий state не містить нових даних із видаленого блока.
+
+Після справжнього out-of-band видалення Read прибирає identity зі state; наступний plan може запропонувати create. CI policy має окремо оцінювати такий випадок. Нове створення не поверне старий UUID, credentials чи пов’язані дані.
+
+## Import
+
+{{ tffile "examples/resources/ory_external_user/import-by-string-id.tf" }}
+
+Import ID: `organization_id/identity_UUID/create_request_UUID`. Третій сегмент — локальний bookkeeping ключ, не спосіб знайти користувача; він має збігатися з HCL. Для старої identity без відомого create request задайте новий стабільний UUID у конфігурації та import ID — import не викликає POST. Перший нормальний plan має бути без змін; deletion_reason за замовчуванням — `Видалення через OpenTofu`.
+
+## Потрібний backend контракт
+
+| Метод | Endpoint | Відповідь |
+| --- | --- | --- |
+| POST | `/v1/organizations/{org}/users` | 201, `id`, `email`, `state`, `organization_id` |
+| GET | `/v1/organizations/{org}/users/{uuid}` | 200, ті самі поля та `name` або null |
+| DELETE | `/v1/organizations/{org}/users/{uuid}` | 204 |
+
+POST має UUID Idempotency-Key, DELETE body — confirm_email/reason. Безпечна absence: **404 з `error.code = identity_not_found`** тільки якщо identity справді не існує після авторизації caller. Generic 404, route miss, opaque denial, 401/403/409/5xx зупиняють операцію й залишають state. Internal/admin, чужа організація, змінені memberships чи втрачений management marker не мають повертати цей authoritative code.
+
+Бізнес-обмеження повторно перевіряються безпосередньо перед mutation, а CI machine identity отримує тільки дозволені організації/scopes. Наявний global Kratos endpoint не є сумісною заміною execution API.

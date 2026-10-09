@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.2.0] - 2026-10-09
+
+### Added
+
+- Початковий `ory_external_user`: create, authoritative read, delete та import через захищений execution API.
+- Окремі endpoint/token file для user API, без перенесення bearer у resource state чи redirect.
+- Стабільний create_request_id у HCL, блокування update identity та implicit replacement.
+- HTTP unit tests і mock acceptance lifecycle зі справжнім OpenTofu; live backend integration ще не виконана.
+
 ## [1.1.0] - 2026-10-09
 
 ### Changed

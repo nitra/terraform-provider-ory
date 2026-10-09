@@ -7,7 +7,8 @@ description: |-
 # Ory Provider від Nitra
 
 Незалежний provider `nitra/ory` для self-hosted Ory, не офіційний `ory/ory` для Ory Network.
-Наразі реалізовано Hydra resources; Kratos/user execution resources ще не додані.
+Реалізовано Hydra resources та початковий `ory_external_user` через захищений execution API.
+Live user integration потребує backend GET/absence contract і CI machine authorization; дивіться guide external-users.
 Локальне ім’я `hydra` та існуючі `hydra_*` resources збережені для сумісності.
 Міграція з `nitra/hydra` описана у `docs/guides/migration-to-ory.md`.
 
@@ -15,6 +16,8 @@ Manages a **self-hosted** [Ory Hydra](https://github.com/ory/hydra) through its 
 Built and tested against `oryd/hydra:v26.2.0` (the Go client is generated from that exact tag).
 
 Resources:
+
+- `ory_external_user` — create/read/delete/import external members через окремий `user_api`, без implicit replacement.
 
 - `hydra_oauth2_client` - OAuth 2.0 clients, including all 13 per-client token lifespans and a
   **write-only** client secret (`client_secret_wo`, OpenTofu >= 1.11) that never reaches state.
@@ -60,6 +63,7 @@ provider "hydra" {
 - `authentication` (Block, Optional) How to authenticate against the Admin API (it is usually only reachable in-cluster and unauthenticated). (see [below for nested schema](#nestedblock--authentication))
 - `endpoint` (String) Hydra Admin API base URL, e.g. `http://hydra-admin:4445`. Can also be set with the `HYDRA_ADMIN_URL` environment variable.
 - `retry_policy` (Block, Optional) Retry API requests that were throttled (HTTP 429) with exponential back-off. (see [below for nested schema](#nestedblock--retry_policy))
+- `user_api` (Block, Optional) Захищений execution API external користувачів. Не Kratos Admin API; endpoint і token file незалежні від Hydra credentials. (see [below for nested schema](#nestedblock--user_api))
 
 <a id="nestedblock--authentication"></a>
 ### Nested Schema for `authentication`
@@ -121,3 +125,12 @@ Optional:
 - `max_elapsed_time` (String) Maximum time spent retrying. Defaults to `30s`.
 - `max_interval` (String) Maximum interval between retries. Defaults to `3s`.
 - `randomization_factor` (Number) Jitter factor. Defaults to `0.5`.
+
+
+<a id="nestedblock--user_api"></a>
+### Nested Schema for `user_api`
+
+Optional:
+
+- `endpoint` (String) HTTPS URL або ORY_ADMIN_ENDPOINT. HTTP тільки для loopback tests.
+- `token_file` (String) Шлях до bearer token file або ORY_ADMIN_TOKEN_FILE. Вміст перечитується перед кожним запитом й не входить у HCL/state.

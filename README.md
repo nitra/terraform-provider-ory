@@ -23,7 +23,7 @@ Provider працює через Hydra Admin API; server/client прив’яз�
 | Data source | `hydra_trusted_jwt_grant_issuers` | Перегляд trusts та ID для import |
 
 Локальне ім’я `hydra` та існуючі `hydra_*` schemas збережені для сумісності.
-Керування Kratos identities та захищений user execution API **ще не реалізовані в цьому repo**.
+Додано початковий `ory_external_user` через окремий блок `user_api`. Provider перевірено через mock API та реальний OpenTofu; live інтеграція ще потребує backend GET/absence contract і CI machine authorization. Докладніше — [external users](docs/guides/external-users.md).
 
 Документація: [docs/index.md](docs/index.md), [міграція до nitra/ory](docs/guides/migration-to-ory.md), [Forgejo Actions → Hydra](docs/guides/forgejo-jwt-bearer.md).
 

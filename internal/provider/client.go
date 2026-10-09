@@ -12,11 +12,13 @@ import (
 
 	"github.com/cenkalti/backoff/v4"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
+	"github.com/nitra/terraform-provider-ory/internal/adminapi"
 	hydra "github.com/ory/hydra-client-go/v2"
 )
 
 // apiClient is shared by all resources and data sources (provider data).
 type apiClient struct {
+	users    *adminapi.Client
 	hydra    *hydra.APIClient
 	http     *http.Client
 	endpoint string // Admin API base URL without trailing slash
@@ -138,6 +140,10 @@ func clientFromProviderData(data any, d *diag.Diagnostics) *apiClient {
 	c, ok := data.(*apiClient)
 	if !ok {
 		d.AddError("Unexpected provider data", fmt.Sprintf("expected *apiClient, got %T", data))
+		return nil
+	}
+	if c.hydra == nil {
+		d.AddError("Hydra endpoint не налаштований", "Для hydra_* resources потрібен endpoint або HYDRA_ADMIN_URL.")
 		return nil
 	}
 	return c
