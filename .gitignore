@@ -1,5 +1,7 @@
 /terraform-provider-hydra
 /terraform-provider-hydra_*
+/terraform-provider-ory
+/terraform-provider-ory_*
 dist/
 *.log
 .terraform/

@@ -3,7 +3,7 @@ terraform {
   required_version = ">= 1.11.0"
   required_providers {
     hydra = {
-      source  = "nitra/hydra"
+      source  = "nitra/ory"
       version = "~> 1.0"
     }
   }

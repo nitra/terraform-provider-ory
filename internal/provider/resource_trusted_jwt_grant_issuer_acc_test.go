@@ -12,7 +12,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-testing/plancheck"
 	"github.com/hashicorp/terraform-plugin-testing/terraform"
 
-	"github.com/nitra/terraform-provider-hydra/internal/testhydra"
+	"github.com/nitra/terraform-provider-ory/internal/testhydra"
 )
 
 func TestAccTrustedJWTGrantIssuer(t *testing.T) {

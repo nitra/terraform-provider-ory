@@ -7,7 +7,7 @@ import (
 
 	"github.com/hashicorp/terraform-plugin-framework/providerserver"
 
-	"github.com/nitra/terraform-provider-hydra/internal/provider"
+	"github.com/nitra/terraform-provider-ory/internal/provider"
 )
 
 // Set by goreleaser via -ldflags.
@@ -22,7 +22,7 @@ func main() {
 	flag.Parse()
 
 	err := providerserver.Serve(context.Background(), provider.New(version), providerserver.ServeOpts{
-		Address: "registry.opentofu.org/nitra/hydra",
+		Address: "registry.opentofu.org/nitra/ory",
 		Debug:   debug,
 	})
 	if err != nil {

@@ -1,6 +1,6 @@
 HOSTNAME=registry.opentofu.org
 NAMESPACE=nitra
-NAME=hydra
+NAME=ory
 BINARY=terraform-provider-${NAME}
 # Placeholder version for local `make install` testing via a filesystem
 # mirror; real releases are cut by goreleaser off a git tag.

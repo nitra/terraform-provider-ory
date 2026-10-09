@@ -10,7 +10,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-go/tfprotov6"
 	"github.com/hashicorp/terraform-plugin-testing/terraform"
 
-	"github.com/nitra/terraform-provider-hydra/internal/testhydra"
+	"github.com/nitra/terraform-provider-ory/internal/testhydra"
 )
 
 // Acceptance tests run against the local Hydra from compose.yaml:
