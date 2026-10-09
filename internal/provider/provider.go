@@ -22,6 +22,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/provider/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/nitra/terraform-provider-ory/internal/adminapi"
 	hydra "github.com/ory/hydra-client-go/v2"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/clientcredentials"
@@ -41,9 +42,16 @@ type hydraProvider struct {
 }
 
 type providerModel struct {
+	UserAPI        *userAPIModel        `tfsdk:"user_api"`
 	Endpoint       types.String         `tfsdk:"endpoint"`
 	RetryPolicy    *retryPolicyModel    `tfsdk:"retry_policy"`
 	Authentication *authenticationModel `tfsdk:"authentication"`
+}
+
+// userAPIModel відокремлює user execution credentials від Hydra Admin API.
+type userAPIModel struct {
+	Endpoint  types.String `tfsdk:"endpoint"`
+	TokenFile types.String `tfsdk:"token_file"`
 }
 
 type retryPolicyModel struct {
@@ -103,6 +111,13 @@ func (p *hydraProvider) Schema(_ context.Context, _ provider.SchemaRequest, resp
 			"endpoint": envAttr("Hydra Admin API base URL, e.g. `http://hydra-admin:4445`.", "HYDRA_ADMIN_URL", false),
 		},
 		Blocks: map[string]schema.Block{
+			"user_api": schema.SingleNestedBlock{
+				MarkdownDescription: "Захищений execution API external користувачів. Не Kratos Admin API; endpoint і token file незалежні від Hydra credentials.",
+				Attributes: map[string]schema.Attribute{
+					"endpoint":   schema.StringAttribute{Optional: true, MarkdownDescription: "HTTPS URL або ORY_ADMIN_ENDPOINT. HTTP тільки для loopback tests."},
+					"token_file": schema.StringAttribute{Optional: true, MarkdownDescription: "Шлях до bearer token file або ORY_ADMIN_TOKEN_FILE. Вміст перечитується перед кожним запитом й не входить у HCL/state."},
+				},
+			},
 			"retry_policy": schema.SingleNestedBlock{
 				MarkdownDescription: "Retry API requests that were throttled (HTTP 429) with exponential back-off.",
 				Attributes: map[string]schema.Attribute{
@@ -163,8 +178,26 @@ func (p *hydraProvider) Configure(ctx context.Context, req provider.ConfigureReq
 		return
 	}
 
+	var users *adminapi.Client
+	if cfg.UserAPI != nil {
+		if cfg.UserAPI.Endpoint.IsUnknown() || cfg.UserAPI.TokenFile.IsUnknown() {
+			resp.Diagnostics.AddError("Невідома user_api конфігурація", "endpoint і token_file мають бути відомими під час plan.")
+			return
+		}
+		var err error
+		users, err = adminapi.New(strOrEnv(cfg.UserAPI.Endpoint, "ORY_ADMIN_ENDPOINT"), strOrEnv(cfg.UserAPI.TokenFile, "ORY_ADMIN_TOKEN_FILE"))
+		if err != nil {
+			resp.Diagnostics.AddError("Некоректний user_api", err.Error())
+			return
+		}
+	}
 	endpoint := strOrEnv(cfg.Endpoint, "HYDRA_ADMIN_URL")
 	if endpoint == "" {
+		if users != nil {
+			resp.ResourceData = &apiClient{users: users}
+			resp.DataSourceData = &apiClient{users: users}
+			return
+		}
 		resp.Diagnostics.AddAttributeError(path.Root("endpoint"), "Missing Hydra Admin endpoint",
 			"Set `endpoint` in the provider block or the HYDRA_ADMIN_URL environment variable.")
 		return
@@ -194,6 +227,7 @@ func (p *hydraProvider) Configure(ctx context.Context, req provider.ConfigureReq
 	hc.Servers = hydra.ServerConfigurations{{URL: base}}
 
 	c := &apiClient{
+		users:    users,
 		hydra:    hydra.NewAPIClient(hc),
 		http:     httpClient,
 		endpoint: base,
@@ -304,6 +338,7 @@ func (t *headerTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 
 func (p *hydraProvider) Resources(_ context.Context) []func() resource.Resource {
 	return []func() resource.Resource{
+		NewExternalUserResource,
 		NewOAuth2ClientResource,
 		NewTrustedJWTGrantIssuerResource,
 	}

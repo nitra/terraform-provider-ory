@@ -7,7 +7,8 @@ description: |-
 # Ory Provider від Nitra
 
 Незалежний provider `nitra/ory` для self-hosted Ory, не офіційний `ory/ory` для Ory Network.
-Наразі реалізовано Hydra resources; Kratos/user execution resources ще не додані.
+Реалізовано Hydra resources та початковий `ory_external_user` через захищений execution API.
+Live user integration потребує backend GET/absence contract і CI machine authorization; дивіться guide external-users.
 Локальне ім’я `hydra` та існуючі `hydra_*` resources збережені для сумісності.
 Міграція з `nitra/hydra` описана у `docs/guides/migration-to-ory.md`.
 
@@ -15,6 +16,8 @@ Manages a **self-hosted** [Ory Hydra](https://github.com/ory/hydra) through its 
 Built and tested against `oryd/hydra:v26.2.0` (the Go client is generated from that exact tag).
 
 Resources:
+
+- `ory_external_user` — create/read/delete/import external members через окремий `user_api`, без implicit replacement.
 
 - `hydra_oauth2_client` - OAuth 2.0 clients, including all 13 per-client token lifespans and a
   **write-only** client secret (`client_secret_wo`, OpenTofu >= 1.11) that never reaches state.
