@@ -18,6 +18,7 @@ import (
 
 // apiClient is shared by all resources and data sources (provider data).
 type apiClient struct {
+	platform *adminapi.Client
 	users    *adminapi.Client
 	hydra    *hydra.APIClient
 	http     *http.Client

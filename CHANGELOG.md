@@ -1,5 +1,13 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- `ory_platform_identity` та окремий `platform_api`: import/read/update усіх configurable полів наявних internal/admin identities.
+- Перевірка revision перед write, sensitive JSON document, блокування recreate/delete під час adoption.
+- Acceptance tests зі справжнім OpenTofu: import без mutation, update, no-change plan, stale saved-plan rejection та збереження state після denial.
+
 ## [1.2.0] - 2026-10-09
 
 ### Security

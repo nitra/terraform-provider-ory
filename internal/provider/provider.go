@@ -42,6 +42,7 @@ type hydraProvider struct {
 }
 
 type providerModel struct {
+	PlatformAPI    *userAPIModel        `tfsdk:"platform_api"`
 	UserAPI        *userAPIModel        `tfsdk:"user_api"`
 	Endpoint       types.String         `tfsdk:"endpoint"`
 	RetryPolicy    *retryPolicyModel    `tfsdk:"retry_policy"`
@@ -111,6 +112,13 @@ func (p *hydraProvider) Schema(_ context.Context, _ provider.SchemaRequest, resp
 			"endpoint": envAttr("Hydra Admin API base URL, e.g. `http://hydra-admin:4445`.", "HYDRA_ADMIN_URL", false),
 		},
 		Blocks: map[string]schema.Block{
+			"platform_api": schema.SingleNestedBlock{
+				MarkdownDescription: "Приватний platform execution API для імпорту й редагування internal/admin identities. Окремий GSA token; tenant token не підходить.",
+				Attributes: map[string]schema.Attribute{
+					"endpoint":   schema.StringAttribute{Optional: true, MarkdownDescription: "HTTPS URL або ORY_PLATFORM_ENDPOINT."},
+					"token_file": schema.StringAttribute{Optional: true, MarkdownDescription: "Google ID token file або ORY_PLATFORM_TOKEN_FILE; token не зберігається у state."},
+				},
+			},
 			"user_api": schema.SingleNestedBlock{
 				MarkdownDescription: "Захищений execution API external користувачів. Не Kratos Admin API; endpoint і token file незалежні від Hydra credentials.",
 				Attributes: map[string]schema.Attribute{
@@ -179,6 +187,19 @@ func (p *hydraProvider) Configure(ctx context.Context, req provider.ConfigureReq
 	}
 
 	var users *adminapi.Client
+	var platform *adminapi.Client
+	if cfg.PlatformAPI != nil {
+		if cfg.PlatformAPI.Endpoint.IsUnknown() || cfg.PlatformAPI.TokenFile.IsUnknown() {
+			resp.Diagnostics.AddError("Невідома platform_api конфігурація", "endpoint і token_file мають бути відомими під час plan.")
+			return
+		}
+		var err error
+		platform, err = adminapi.New(strOrEnv(cfg.PlatformAPI.Endpoint, "ORY_PLATFORM_ENDPOINT"), strOrEnv(cfg.PlatformAPI.TokenFile, "ORY_PLATFORM_TOKEN_FILE"))
+		if err != nil {
+			resp.Diagnostics.AddError("Некоректний platform_api", err.Error())
+			return
+		}
+	}
 	if cfg.UserAPI != nil {
 		if cfg.UserAPI.Endpoint.IsUnknown() || cfg.UserAPI.TokenFile.IsUnknown() {
 			resp.Diagnostics.AddError("Невідома user_api конфігурація", "endpoint і token_file мають бути відомими під час plan.")
@@ -193,9 +214,9 @@ func (p *hydraProvider) Configure(ctx context.Context, req provider.ConfigureReq
 	}
 	endpoint := strOrEnv(cfg.Endpoint, "HYDRA_ADMIN_URL")
 	if endpoint == "" {
-		if users != nil {
-			resp.ResourceData = &apiClient{users: users}
-			resp.DataSourceData = &apiClient{users: users}
+		if users != nil || platform != nil {
+			resp.ResourceData = &apiClient{users: users, platform: platform}
+			resp.DataSourceData = &apiClient{users: users, platform: platform}
 			return
 		}
 		resp.Diagnostics.AddAttributeError(path.Root("endpoint"), "Missing Hydra Admin endpoint",
@@ -227,6 +248,7 @@ func (p *hydraProvider) Configure(ctx context.Context, req provider.ConfigureReq
 	hc.Servers = hydra.ServerConfigurations{{URL: base}}
 
 	c := &apiClient{
+		platform: platform,
 		users:    users,
 		hydra:    hydra.NewAPIClient(hc),
 		http:     httpClient,
@@ -338,6 +360,7 @@ func (t *headerTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 
 func (p *hydraProvider) Resources(_ context.Context) []func() resource.Resource {
 	return []func() resource.Resource{
+		NewPlatformIdentityResource,
 		NewExternalUserResource,
 		NewOAuth2ClientResource,
 		NewTrustedJWTGrantIssuerResource,
