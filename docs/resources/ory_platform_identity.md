@@ -7,9 +7,8 @@ description: |-
 
 # ory_platform_identity
 
-Керує наявною identity через окремий приватний `platform_api`, включно з internal
-users та admins. Google machine authorization перевіряє backend; tenant tokens
-не мають платформних прав. UUID зберігається; credentials та sessions лишаються
+Керує наявною identity через Kratos Admin API, доступний на локальному
+`kubectl port-forward`. UUID зберігається; credentials та sessions лишаються
 у Kratos. Resource підтримує import/read/update. Create/recreate та фізичне delete
 заблоковані у фазі adoption; для припинення керування використайте `removed` із
 `lifecycle { destroy = false }`.
@@ -22,7 +21,8 @@ Static source потрібен через змішані prefixes `hydra_*`/`ory
 | --- | --- | --- | --- |
 | `id` | String | Computed | Наявний UUID Kratos identity |
 | `document` | String (JSON), Sensitive | Required | Усі configurable поля identity |
-| `revision` | String | Computed | Fingerprint документа й updated_at; перевіряється перед записом |
+| `observed_document` | String (JSON), Sensitive | Computed | Останній прочитаний стан Kratos |
+| `revision` | String | Computed | Fingerprint документа й updated_at для спостереження |
 
 Document обов’язково містить `schema_id`, `state`, `traits`, `metadata_public`,
 `metadata_admin`, `verifiable_addresses`, `recovery_addresses`, `external_id`,
@@ -44,10 +44,7 @@ terraform {
 }
 
 provider "hydra" {
-  platform_api {
-    endpoint   = "https://private-platform-api.example.com"
-    token_file = "/run/secrets/platform-google-id.token"
-  }
+  kratos_admin = "http://127.0.0.1:15434"
 }
 
 resource "ory_platform_identity" "user" {
@@ -77,19 +74,29 @@ import {
 з прикладу. Перший normal plan має бути без змін. Запит використовує тільки
 GET під час import; provider не додає adoption marker і не змінює user_type.
 
-`ORY_PLATFORM_ENDPOINT` та `ORY_PLATFORM_TOKEN_FILE` можуть задавати конфігурацію
-в environment, але блок `platform_api {}` обов’язковий. Token file перечитується
-перед кожним запитом; token не потрапляє в HCL/state. Redirect і retry mutation
-відсутні; HTTPS обов’язковий, HTTP дозволений лише для loopback rehearsal.
+`KRATOS_ADMIN_URL` може задавати endpoint замість `kratos_admin`. HTTP дозволений
+лише через loopback `kubectl port-forward`; публічний маршрут не потрібен.
+Redirect і retry mutation відсутні.
 
 ## Конкурентні зміни й recovery
 
-Stale revision повертає 409; provider зберігає state та зупиняє apply.
-При відсутності імпортованої identity Read повертає diagnostic і не запускає
-recreate. 401/403, generic 404, timeout та 5xx також не очищають state.
+`document` у state зберігає попередню бажану конфігурацію; `observed_document`
+оновлюється під час refresh. Коли ви змінюєте `document`, provider порівнює
+стару конфігурацію, нову конфігурацію і поточний Kratos. Незалежні зміни
+JSON-шляхів зберігаються, зміна одного шляху з обох боків зупиняє apply.
+Arrays (зокрема roles і addresses) є одним неподільним шляхом. Конфлікт
+показується без значень персональних даних. Наступний plan без вашої зміни
+не повертає зовнішні зміни до старих значень HCL.
+Якщо потрібно навмисно повернути значення, яке Kratos змінив зовні, спочатку
+синхронізуйте відповідний шлях `document` із поточним Kratos, застосуйте
+цей no-op plan, потім встановіть бажане значення і виконайте окремий plan/apply.
 
-Kratos v26.2.0 відхиляє JSON Patch `test`. Перевірка revision перед PATCH не є
-атомарним CAS для сторонніх writers; перед cutover їх треба узгодити/зупинити.
+При відсутності імпортованої identity Read повертає diagnostic і не запускає
+recreate. Помилки доступу, timeout та 5xx також не очищають state.
+
+Kratos v26.2.0 відхиляє JSON Patch `test`. Перевірка потрібних шляхів перед PATCH
+не є атомарним CAS; одночасний запис саме під час PATCH потребує окремого
+узгодження writers. Після timeout перечитайте identity перед повторною дією.
 Server-derived адреси можуть нормалізуватися після зміни email/schema — перевірте
 результат і наступний normal plan. Production import та ввімкнення live mutations
 потребують окремого приймання після rehearsal.

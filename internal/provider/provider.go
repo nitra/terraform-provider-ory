@@ -23,6 +23,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/nitra/terraform-provider-ory/internal/adminapi"
+	"github.com/nitra/terraform-provider-ory/internal/kratosadmin"
 	hydra "github.com/ory/hydra-client-go/v2"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/clientcredentials"
@@ -42,7 +43,7 @@ type hydraProvider struct {
 }
 
 type providerModel struct {
-	PlatformAPI    *userAPIModel        `tfsdk:"platform_api"`
+	KratosAdmin    types.String         `tfsdk:"kratos_admin"`
 	UserAPI        *userAPIModel        `tfsdk:"user_api"`
 	Endpoint       types.String         `tfsdk:"endpoint"`
 	RetryPolicy    *retryPolicyModel    `tfsdk:"retry_policy"`
@@ -109,16 +110,10 @@ func (p *hydraProvider) Schema(_ context.Context, _ provider.SchemaRequest, resp
 	resp.Schema = schema.Schema{
 		MarkdownDescription: "Manages self-hosted [Ory Hydra](https://github.com/ory/hydra) (tested against `oryd/hydra:v26.2.0`) through its Admin API.",
 		Attributes: map[string]schema.Attribute{
-			"endpoint": envAttr("Hydra Admin API base URL, e.g. `http://hydra-admin:4445`.", "HYDRA_ADMIN_URL", false),
+			"endpoint":     envAttr("Hydra Admin API base URL, e.g. `http://hydra-admin:4445`.", "HYDRA_ADMIN_URL", false),
+			"kratos_admin": envAttr("Kratos Admin API base URL; loopback HTTP supports local kubectl port-forward.", "KRATOS_ADMIN_URL", false),
 		},
 		Blocks: map[string]schema.Block{
-			"platform_api": schema.SingleNestedBlock{
-				MarkdownDescription: "Приватний platform execution API для імпорту й редагування internal/admin identities. Окремий GSA token; tenant token не підходить.",
-				Attributes: map[string]schema.Attribute{
-					"endpoint":   schema.StringAttribute{Optional: true, MarkdownDescription: "HTTPS URL або ORY_PLATFORM_ENDPOINT."},
-					"token_file": schema.StringAttribute{Optional: true, MarkdownDescription: "Google ID token file або ORY_PLATFORM_TOKEN_FILE; token не зберігається у state."},
-				},
-			},
 			"user_api": schema.SingleNestedBlock{
 				MarkdownDescription: "Захищений execution API external користувачів. Не Kratos Admin API; endpoint і token file незалежні від Hydra credentials.",
 				Attributes: map[string]schema.Attribute{
@@ -187,16 +182,16 @@ func (p *hydraProvider) Configure(ctx context.Context, req provider.ConfigureReq
 	}
 
 	var users *adminapi.Client
-	var platform *adminapi.Client
-	if cfg.PlatformAPI != nil {
-		if cfg.PlatformAPI.Endpoint.IsUnknown() || cfg.PlatformAPI.TokenFile.IsUnknown() {
-			resp.Diagnostics.AddError("Невідома platform_api конфігурація", "endpoint і token_file мають бути відомими під час plan.")
-			return
-		}
+	var kratos *kratosadmin.Client
+	if cfg.KratosAdmin.IsUnknown() {
+		resp.Diagnostics.AddError("Невідомий kratos_admin", "Kratos Admin endpoint має бути відомим під час plan.")
+		return
+	}
+	if endpoint := strOrEnv(cfg.KratosAdmin, "KRATOS_ADMIN_URL"); endpoint != "" {
 		var err error
-		platform, err = adminapi.New(strOrEnv(cfg.PlatformAPI.Endpoint, "ORY_PLATFORM_ENDPOINT"), strOrEnv(cfg.PlatformAPI.TokenFile, "ORY_PLATFORM_TOKEN_FILE"))
+		kratos, err = kratosadmin.New(endpoint)
 		if err != nil {
-			resp.Diagnostics.AddError("Некоректний platform_api", err.Error())
+			resp.Diagnostics.AddError("Некоректний kratos_admin", err.Error())
 			return
 		}
 	}
@@ -214,9 +209,9 @@ func (p *hydraProvider) Configure(ctx context.Context, req provider.ConfigureReq
 	}
 	endpoint := strOrEnv(cfg.Endpoint, "HYDRA_ADMIN_URL")
 	if endpoint == "" {
-		if users != nil || platform != nil {
-			resp.ResourceData = &apiClient{users: users, platform: platform}
-			resp.DataSourceData = &apiClient{users: users, platform: platform}
+		if users != nil || kratos != nil {
+			resp.ResourceData = &apiClient{users: users, kratos: kratos}
+			resp.DataSourceData = &apiClient{users: users, kratos: kratos}
 			return
 		}
 		resp.Diagnostics.AddAttributeError(path.Root("endpoint"), "Missing Hydra Admin endpoint",
@@ -248,7 +243,7 @@ func (p *hydraProvider) Configure(ctx context.Context, req provider.ConfigureReq
 	hc.Servers = hydra.ServerConfigurations{{URL: base}}
 
 	c := &apiClient{
-		platform: platform,
+		kratos:   kratos,
 		users:    users,
 		hydra:    hydra.NewAPIClient(hc),
 		http:     httpClient,

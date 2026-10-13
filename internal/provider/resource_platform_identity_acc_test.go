@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/nitra/terraform-provider-ory/internal/kratosadmin"
 )
 
 const platformID = "00000000-0000-4000-8000-000000000001"
@@ -26,19 +28,15 @@ func TestAccPlatformIdentityImportUpdate(t *testing.T) {
 		t.Skip("OpenTofu unavailable")
 	}
 	dir := t.TempDir()
-	token := filepath.Join(dir, "token")
-	if err := os.WriteFile(token, []byte("sample-secret"), 0600); err != nil {
-		t.Fatal(err)
-	}
 	doc := map[string]any{"schema_id": "default", "state": "active", "traits": map[string]any{"email": "admin@example.com", "user_type": "internal"}, "metadata_admin": map[string]any{"memberships": map[string]any{"org": map[string]any{"role": "admin"}}}, "metadata_public": map[string]any{"roles": []string{"admin"}}, "verifiable_addresses": []any{}, "recovery_addresses": []any{}, "external_id": nil, "organization_id": nil}
 	var mu sync.Mutex
 	writes := 0
-	revision := strings.Repeat("a", 64)
+	revision := 1
 	deny := false
 	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
 		defer mu.Unlock()
-		if r.Header.Get("Authorization") != "Bearer sample-secret" || r.URL.Path != "/v1/platform/identities/"+platformID {
+		if r.URL.Path != "/admin/identities/"+platformID {
 			w.WriteHeader(403)
 			return
 		}
@@ -46,32 +44,38 @@ func TestAccPlatformIdentityImportUpdate(t *testing.T) {
 			w.WriteHeader(403)
 			return
 		}
-		if r.Method == "PUT" {
-			var body struct {
-				Document map[string]any `json:"document"`
-				Revision string         `json:"expected_revision"`
-			}
-			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		if r.Method == "PATCH" {
+			var operations []kratosadmin.Operation
+			if err := json.NewDecoder(r.Body).Decode(&operations); err != nil {
 				t.Error(err)
 			}
-			if body.Revision != revision {
-				w.WriteHeader(409)
-				return
+			for _, op := range operations {
+				if strings.Contains(op.Path, "credentials") || op.Path == "/id" {
+					t.Errorf("forbidden patch path %s", op.Path)
+				}
+				parts := strings.Split(strings.TrimPrefix(op.Path, "/"), "/")
+				object := doc
+				for _, part := range parts[:len(parts)-1] {
+					object = object[part].(map[string]any)
+				}
+				if op.Op == "remove" {
+					delete(object, parts[len(parts)-1])
+				} else {
+					object[parts[len(parts)-1]] = op.Value
+				}
 			}
-			if _, ok := body.Document["credentials"]; ok {
-				t.Error("credential injection")
-				w.WriteHeader(422)
-				return
-			}
-			doc = body.Document
 			writes++
-			revision = strings.Repeat("b", 64)
+			revision++
 		} else if r.Method != "GET" {
 			t.Errorf("unexpected mutation %s", r.Method)
 			w.WriteHeader(405)
 			return
 		}
-		_ = json.NewEncoder(w).Encode(map[string]any{"id": platformID, "document": doc, "revision": revision})
+		response := map[string]any{"id": platformID, "updated_at": fmt.Sprintf("2026-10-12T00:00:%02dZ", revision), "credentials": map[string]any{"password": "sample-secret"}}
+		for key, value := range doc {
+			response[key] = value
+		}
+		_ = json.NewEncoder(w).Encode(response)
 	}))
 	defer s.Close()
 	mirror := filepath.Join(dir, "mirror")
@@ -96,17 +100,14 @@ func TestAccPlatformIdentityImportUpdate(t *testing.T) {
  }
 }
 provider "hydra" {
- platform_api {
- endpoint = %q
- token_file = %q
- }
+ kratos_admin = %q
 }
 resource "ory_platform_identity" "user" {
  provider = hydra
  document = %q
  lifecycle { prevent_destroy = true }
 }
-`, s.URL, token, string(encoded))
+`, s.URL, string(encoded))
 		if err := os.WriteFile(filepath.Join(dir, "main.tf"), []byte(config), 0600); err != nil {
 			t.Fatal(err)
 		}
@@ -137,30 +138,41 @@ resource "ory_platform_identity" "user" {
 	if writes != 0 {
 		t.Fatal("import mutated identity")
 	}
+	mu.Lock()
+	doc["traits"].(map[string]any)["name"] = "Outside"
+	revision++
+	mu.Unlock()
+	run(0, "plan", "-input=false", "-detailed-exitcode")
 	desired := map[string]any{}
 	for k, v := range doc {
 		desired[k] = v
 	}
 	desired["state"] = "inactive"
-	desired["traits"] = map[string]any{"email": "changed@example.com", "name": "Changed", "user_type": "internal", "picture": "https://example.com/avatar.png"}
+	desired["traits"] = map[string]any{"email": "changed@example.com", "user_type": "internal", "picture": "https://example.com/avatar.png"}
 	desired["metadata_admin"] = map[string]any{"memberships": map[string]any{"org": map[string]any{"role": "member"}}}
 	desired["metadata_public"] = map[string]any{"roles": []string{"abie:dagster"}}
 	writeConfig(desired)
 	run(2, "plan", "-input=false", "-detailed-exitcode", "-out=update.plan")
 	run(0, "apply", "-input=false", "update.plan")
 	run(0, "plan", "-input=false", "-detailed-exitcode")
+	mu.Lock()
+	if doc["traits"].(map[string]any)["name"] != "Outside" {
+		t.Fatal("independent external name was overwritten")
+	}
+	mu.Unlock()
 	if writes != 1 {
 		t.Fatalf("writes = %d", writes)
 	}
-	desired["state"] = "active"
+	desired["metadata_public"] = map[string]any{"roles": []string{"new-role"}}
 	writeConfig(desired)
 	run(2, "plan", "-input=false", "-detailed-exitcode", "-out=race.plan")
 	mu.Lock()
-	revision = strings.Repeat("c", 64)
+	doc["metadata_public"].(map[string]any)["roles"] = []string{"outside-role"}
+	revision++
 	mu.Unlock()
 	run(1, "apply", "-input=false", "race.plan")
 	if writes != 1 {
-		t.Fatal("stale saved plan performed a write")
+		t.Fatal("same-path conflict performed a write")
 	}
 	mu.Lock()
 	deny = true

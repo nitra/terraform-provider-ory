@@ -13,12 +13,13 @@ import (
 	"github.com/cenkalti/backoff/v4"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/nitra/terraform-provider-ory/internal/adminapi"
+	"github.com/nitra/terraform-provider-ory/internal/kratosadmin"
 	hydra "github.com/ory/hydra-client-go/v2"
 )
 
 // apiClient is shared by all resources and data sources (provider data).
 type apiClient struct {
-	platform *adminapi.Client
+	kratos   *kratosadmin.Client
 	users    *adminapi.Client
 	hydra    *hydra.APIClient
 	http     *http.Client

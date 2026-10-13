@@ -13,13 +13,14 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/nitra/terraform-provider-ory/internal/adminapi"
+	"github.com/nitra/terraform-provider-ory/internal/kratosadmin"
 )
 
-type platformIdentityResource struct{ client *adminapi.Client }
+type platformIdentityResource struct{ client *kratosadmin.Client }
 type platformIdentityModel struct {
 	ID       types.String         `tfsdk:"id"`
 	Document jsontypes.Normalized `tfsdk:"document"`
+	Observed jsontypes.Normalized `tfsdk:"observed_document"`
 	Revision types.String         `tfsdk:"revision"`
 }
 
@@ -33,9 +34,10 @@ func (r *platformIdentityResource) Metadata(_ context.Context, _ resource.Metada
 }
 func (r *platformIdentityResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{MarkdownDescription: "Імпорт і редагування усіх керованих полів наявної Kratos identity зі збереженням UUID та credentials. Create/recreate/delete заблоковані у фазі adoption.", Attributes: map[string]schema.Attribute{
-		"id":       schema.StringAttribute{Computed: true, PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}, MarkdownDescription: "Наявний UUID; імпортуйте identity перед керуванням."},
-		"document": schema.StringAttribute{Required: true, Sensitive: true, CustomType: jsontypes.NormalizedType{}, MarkdownDescription: "Повний configurable JSON: schema_id, state, traits, metadata_public, metadata_admin, verifiable_addresses, recovery_addresses, external_id, organization_id. Credentials та server-owned поля заборонені."},
-		"revision": schema.StringAttribute{Computed: true, MarkdownDescription: "Fingerprint поточного документа та updated_at для перевірки перед записом."},
+		"id":                schema.StringAttribute{Computed: true, PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}, MarkdownDescription: "Наявний UUID; імпортуйте identity перед керуванням."},
+		"document":          schema.StringAttribute{Required: true, Sensitive: true, CustomType: jsontypes.NormalizedType{}, MarkdownDescription: "Останній бажаний JSON. Зовнішні зміни до інших JSON-шляхів зберігаються; конфлікт на зміненому шляху зупиняє apply."},
+		"observed_document": schema.StringAttribute{Computed: true, Sensitive: true, CustomType: jsontypes.NormalizedType{}, MarkdownDescription: "Останній прочитаний стан Kratos; може відрізнятися від document після зовнішніх змін."},
+		"revision":          schema.StringAttribute{Computed: true, MarkdownDescription: "Fingerprint поточного документа та updated_at для перевірки перед записом."},
 	}}
 }
 func (r *platformIdentityResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
@@ -43,11 +45,11 @@ func (r *platformIdentityResource) Configure(_ context.Context, req resource.Con
 		return
 	}
 	bundle, ok := req.ProviderData.(*apiClient)
-	if !ok || bundle.platform == nil {
-		resp.Diagnostics.AddError("platform_api не налаштований", "Додайте окремий platform_api з Google ID token file.")
+	if !ok || bundle.kratos == nil {
+		resp.Diagnostics.AddError("kratos_admin не налаштований", "Додайте Kratos Admin endpoint через provider kratos_admin або KRATOS_ADMIN_URL.")
 		return
 	}
-	r.client = bundle.platform
+	r.client = bundle.kratos
 }
 func (r *platformIdentityResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {
 	if req.Plan.Raw.IsNull() {
@@ -58,7 +60,7 @@ func (r *platformIdentityResource) ModifyPlan(ctx context.Context, req resource.
 	if resp.Diagnostics.HasError() || plan.Document.IsUnknown() || plan.Document.IsNull() {
 		return
 	}
-	if err := adminapi.ValidatePlatformDocument([]byte(plan.Document.ValueString())); err != nil {
+	if err := kratosadmin.ValidateDocument([]byte(plan.Document.ValueString())); err != nil {
 		resp.Diagnostics.AddAttributeError(path.Root("document"), "Некоректний identity document", err.Error())
 	}
 }
@@ -71,8 +73,8 @@ func (r *platformIdentityResource) Read(ctx context.Context, req resource.ReadRe
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	actual, err := r.client.ReadPlatform(ctx, state.ID.ValueString())
-	if errors.Is(err, adminapi.ErrNotFound) {
+	actual, err := r.client.Read(ctx, state.ID.ValueString())
+	if errors.Is(err, kratosadmin.ErrNotFound) {
 		// Keep state: absent imported identities must never be silently recreated.
 		resp.Diagnostics.AddError("Імпортована identity відсутня", "Перевірте Kratos та recovery; state збережено, recreate заблоковано.")
 		return
@@ -81,7 +83,9 @@ func (r *platformIdentityResource) Read(ctx context.Context, req resource.ReadRe
 		resp.Diagnostics.AddError("Не вдалося прочитати identity", err.Error())
 		return
 	}
-	state.Document = jsontypes.NewNormalizedValue(string(actual.Document))
+	// Keep the previous desired document as the intent baseline. Only the
+	// observed document follows external changes during refresh.
+	state.Observed = jsontypes.NewNormalizedValue(string(actual.Document))
 	state.Revision = types.StringValue(actual.Revision)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
@@ -96,12 +100,33 @@ func (r *platformIdentityResource) Update(ctx context.Context, req resource.Upda
 		resp.Diagnostics.AddError("Зміна UUID заборонена", "Зберігайте наявний UUID identity.")
 		return
 	}
-	actual, err := r.client.UpdatePlatform(ctx, state.ID.ValueString(), json.RawMessage(plan.Document.ValueString()), state.Revision.ValueString())
+	current, err := r.client.Read(ctx, state.ID.ValueString())
+	if err != nil {
+		resp.Diagnostics.AddError("Не вдалося перечитати identity", err.Error())
+		return
+	}
+	changes, err := kratosadmin.Merge(json.RawMessage(state.Document.ValueString()), json.RawMessage(plan.Document.ValueString()), current.Document)
+	if err != nil {
+		resp.Diagnostics.AddError("Конфлікт identity", err.Error())
+		return
+	}
+	actual := current
+	if len(changes) > 0 {
+		actual, err = r.client.PatchWithCurrent(ctx, state.ID.ValueString(), changes, current)
+		if err == nil {
+			actual, err = r.client.Read(ctx, state.ID.ValueString())
+		}
+	}
 	if err != nil {
 		resp.Diagnostics.AddError("Не вдалося оновити identity", err.Error())
 		return
 	}
-	plan.Document = jsontypes.NewNormalizedValue(string(actual.Document))
+	remaining, err := kratosadmin.Merge(json.RawMessage(state.Document.ValueString()), json.RawMessage(plan.Document.ValueString()), actual.Document)
+	if err != nil || len(remaining) > 0 {
+		resp.Diagnostics.AddError("Kratos не підтвердив бажану зміну", "Перечитайте identity перед повторним plan; результат PATCH може бути неоднозначним.")
+		return
+	}
+	plan.Observed = jsontypes.NewNormalizedValue(string(actual.Document))
 	plan.Revision = types.StringValue(actual.Revision)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
@@ -114,10 +139,10 @@ func (r *platformIdentityResource) ImportState(ctx context.Context, req resource
 		resp.Diagnostics.AddError("Некоректний import ID", "Потрібен наявний UUID Kratos identity.")
 		return
 	}
-	actual, err := r.client.ReadPlatform(ctx, id.String())
+	actual, err := r.client.Read(ctx, id.String())
 	if err != nil {
 		resp.Diagnostics.AddError("Не вдалося імпортувати identity", err.Error())
 		return
 	}
-	resp.Diagnostics.Append(resp.State.Set(ctx, &platformIdentityModel{ID: types.StringValue(actual.ID), Document: jsontypes.NewNormalizedValue(string(actual.Document)), Revision: types.StringValue(actual.Revision)})...)
+	resp.Diagnostics.Append(resp.State.Set(ctx, &platformIdentityModel{ID: types.StringValue(actual.ID), Document: jsontypes.NewNormalizedValue(string(actual.Document)), Observed: jsontypes.NewNormalizedValue(string(actual.Document)), Revision: types.StringValue(actual.Revision)})...)
 }
