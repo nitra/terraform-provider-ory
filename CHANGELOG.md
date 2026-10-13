@@ -1,5 +1,13 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- `ory_platform_identity` через прямий `kratos_admin` для локального port-forward: import/read/update наявних identities, без create/delete чи перенесення credentials.
+- Three-way merge незалежних JSON-шляхів і зупинка при зміні одного шляху; `observed_document` відокремлено від бажаної конфігурації.
+- Acceptance tests зі справжнім OpenTofu: import без mutation, незалежний зовнішній drift, update, конфлікт saved plan та збереження state після denial.
+
 ## [1.2.0] - 2026-10-09
 
 ### Security

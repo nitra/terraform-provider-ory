@@ -23,6 +23,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/nitra/terraform-provider-ory/internal/adminapi"
+	"github.com/nitra/terraform-provider-ory/internal/kratosadmin"
 	hydra "github.com/ory/hydra-client-go/v2"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/clientcredentials"
@@ -42,6 +43,7 @@ type hydraProvider struct {
 }
 
 type providerModel struct {
+	KratosAdmin    types.String         `tfsdk:"kratos_admin"`
 	UserAPI        *userAPIModel        `tfsdk:"user_api"`
 	Endpoint       types.String         `tfsdk:"endpoint"`
 	RetryPolicy    *retryPolicyModel    `tfsdk:"retry_policy"`
@@ -108,7 +110,8 @@ func (p *hydraProvider) Schema(_ context.Context, _ provider.SchemaRequest, resp
 	resp.Schema = schema.Schema{
 		MarkdownDescription: "Manages self-hosted [Ory Hydra](https://github.com/ory/hydra) (tested against `oryd/hydra:v26.2.0`) through its Admin API.",
 		Attributes: map[string]schema.Attribute{
-			"endpoint": envAttr("Hydra Admin API base URL, e.g. `http://hydra-admin:4445`.", "HYDRA_ADMIN_URL", false),
+			"endpoint":     envAttr("Hydra Admin API base URL, e.g. `http://hydra-admin:4445`.", "HYDRA_ADMIN_URL", false),
+			"kratos_admin": envAttr("Kratos Admin API base URL; loopback HTTP supports local kubectl port-forward.", "KRATOS_ADMIN_URL", false),
 		},
 		Blocks: map[string]schema.Block{
 			"user_api": schema.SingleNestedBlock{
@@ -179,6 +182,19 @@ func (p *hydraProvider) Configure(ctx context.Context, req provider.ConfigureReq
 	}
 
 	var users *adminapi.Client
+	var kratos *kratosadmin.Client
+	if cfg.KratosAdmin.IsUnknown() {
+		resp.Diagnostics.AddError("Невідомий kratos_admin", "Kratos Admin endpoint має бути відомим під час plan.")
+		return
+	}
+	if endpoint := strOrEnv(cfg.KratosAdmin, "KRATOS_ADMIN_URL"); endpoint != "" {
+		var err error
+		kratos, err = kratosadmin.New(endpoint)
+		if err != nil {
+			resp.Diagnostics.AddError("Некоректний kratos_admin", err.Error())
+			return
+		}
+	}
 	if cfg.UserAPI != nil {
 		if cfg.UserAPI.Endpoint.IsUnknown() || cfg.UserAPI.TokenFile.IsUnknown() {
 			resp.Diagnostics.AddError("Невідома user_api конфігурація", "endpoint і token_file мають бути відомими під час plan.")
@@ -193,9 +209,9 @@ func (p *hydraProvider) Configure(ctx context.Context, req provider.ConfigureReq
 	}
 	endpoint := strOrEnv(cfg.Endpoint, "HYDRA_ADMIN_URL")
 	if endpoint == "" {
-		if users != nil {
-			resp.ResourceData = &apiClient{users: users}
-			resp.DataSourceData = &apiClient{users: users}
+		if users != nil || kratos != nil {
+			resp.ResourceData = &apiClient{users: users, kratos: kratos}
+			resp.DataSourceData = &apiClient{users: users, kratos: kratos}
 			return
 		}
 		resp.Diagnostics.AddAttributeError(path.Root("endpoint"), "Missing Hydra Admin endpoint",
@@ -227,6 +243,7 @@ func (p *hydraProvider) Configure(ctx context.Context, req provider.ConfigureReq
 	hc.Servers = hydra.ServerConfigurations{{URL: base}}
 
 	c := &apiClient{
+		kratos:   kratos,
 		users:    users,
 		hydra:    hydra.NewAPIClient(hc),
 		http:     httpClient,
@@ -338,6 +355,7 @@ func (t *headerTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 
 func (p *hydraProvider) Resources(_ context.Context) []func() resource.Resource {
 	return []func() resource.Resource{
+		NewPlatformIdentityResource,
 		NewExternalUserResource,
 		NewOAuth2ClientResource,
 		NewTrustedJWTGrantIssuerResource,

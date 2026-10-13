@@ -17,6 +17,8 @@ Built and tested against `oryd/hydra:v26.2.0` (the Go client is generated from t
 
 Resources:
 
+- `ory_platform_identity` — import/read/update наявних Kratos identities через `kratos_admin`, зі збереженням UUID та credentials; незалежні зовнішні зміни об'єднуються.
+
 - `ory_external_user` — create/read/delete/import external members через окремий `user_api`, без implicit replacement.
 
 - `hydra_oauth2_client` - OAuth 2.0 clients, including all 13 per-client token lifespans and a
@@ -62,6 +64,7 @@ provider "hydra" {
 
 - `authentication` (Block, Optional) How to authenticate against the Admin API (it is usually only reachable in-cluster and unauthenticated). (see [below for nested schema](#nestedblock--authentication))
 - `endpoint` (String) Hydra Admin API base URL, e.g. `http://hydra-admin:4445`. Can also be set with the `HYDRA_ADMIN_URL` environment variable.
+- `kratos_admin` (String) Kratos Admin API base URL; loopback HTTP supports local kubectl port-forward. Can also be set with the `KRATOS_ADMIN_URL` environment variable.
 - `retry_policy` (Block, Optional) Retry API requests that were throttled (HTTP 429) with exponential back-off. (see [below for nested schema](#nestedblock--retry_policy))
 - `user_api` (Block, Optional) Захищений execution API external користувачів. Не Kratos Admin API; endpoint і token file незалежні від Hydra credentials. (see [below for nested schema](#nestedblock--user_api))
 
