@@ -128,6 +128,18 @@ func (c *Client) request(ctx context.Context, method, id string, body any) (Iden
 	if err != nil || ValidateDocument(result.Document) != nil {
 		return Identity{}, errors.New("Kratos повернув некоректні керовані поля")
 	}
+	// Terraform compares configured strings during import. Sort nested object
+	// keys too, so jsonencode(HCL) matches the imported JSON document.
+	decoder := json.NewDecoder(bytes.NewReader(result.Document))
+	decoder.UseNumber()
+	var canonical any
+	if decoder.Decode(&canonical) != nil {
+		return Identity{}, errors.New("не вдалося нормалізувати identity document")
+	}
+	result.Document, err = json.Marshal(canonical)
+	if err != nil {
+		return Identity{}, errors.New("не вдалося нормалізувати identity document")
+	}
 	fingerprint, err := json.Marshal(struct {
 		Document json.RawMessage `json:"document"`
 		Updated  json.RawMessage `json:"updated_at"`

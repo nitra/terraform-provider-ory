@@ -59,3 +59,21 @@ func TestKratosAdminEndpointRequiresLoopback(t *testing.T) {
 		}
 	}
 }
+
+func TestReadCanonicalizesNestedJSONForImportPlan(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"id":"00000000-0000-4000-8000-000000000001","schema_id":"default","state":"active","traits":{"z":"last","a":"first"},"metadata_public":null,"metadata_admin":null,"verifiable_addresses":[],"recovery_addresses":[],"external_id":null,"organization_id":null}`))
+	}))
+	defer server.Close()
+	client, err := New(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity, err := client.Read(context.Background(), fixtureID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(identity.Document) != `{"external_id":null,"metadata_admin":null,"metadata_public":null,"organization_id":null,"recovery_addresses":[],"schema_id":"default","state":"active","traits":{"a":"first","z":"last"},"verifiable_addresses":[]}` {
+		t.Fatalf("document is not canonical: %s", identity.Document)
+	}
+}
