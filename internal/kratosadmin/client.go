@@ -38,16 +38,45 @@ type Client struct {
 	http *http.Client
 }
 
-// New accepts HTTPS or loopback HTTP for a local kubectl port-forward.
+// New preserves the loopback-only default for local kubectl port-forward.
 func New(endpoint string) (*Client, error) {
+	return NewWithAllowedRemoteEndpoints(endpoint, nil)
+}
+
+// endpointURL accepts only bare HTTP(S) origins, never paths or URL credentials.
+func endpointURL(endpoint string) (*url.URL, error) {
 	u, err := url.Parse(endpoint)
-	if err != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Path != "" || (u.Scheme != "https" && u.Scheme != "http") {
+	if err != nil || u.Host == "" || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Path != "" || u.Opaque != "" || strings.ContainsAny(endpoint, "*?#") || (u.Scheme != "https" && u.Scheme != "http") {
 		return nil, errors.New("Kratos Admin endpoint має бути абсолютним URL без path, credentials, query і fragment")
 	}
-	if u.Hostname() != "localhost" && u.Hostname() != "127.0.0.1" && u.Hostname() != "::1" {
-		return nil, errors.New("Kratos Admin доступний лише через локальний loopback port-forward")
+	return u, nil
+}
+
+// NewWithAllowedRemoteEndpoints opts in only exact trusted remote base URLs.
+// This is not authentication, DNS pinning, a network sandbox or apply authorization.
+func NewWithAllowedRemoteEndpoints(endpoint string, allowed []string) (*Client, error) {
+	for _, candidate := range allowed {
+		if _, err := endpointURL(candidate); err != nil {
+			return nil, errors.New("Некоректний kratos_admin_allowed_remote_endpoints; потрібні exact HTTP(S) base URLs без wildcard, path, credentials, query і fragment")
+		}
 	}
+	u, err := endpointURL(endpoint)
+	if err != nil {
+		return nil, err
+	}
+	loopback := u.Hostname() == "localhost" || u.Hostname() == "127.0.0.1" || u.Hostname() == "::1"
+	permitted := loopback
+	for _, candidate := range allowed {
+		permitted = permitted || candidate == endpoint
+	}
+	if !permitted {
+		return nil, errors.New("Kratos Admin remote endpoint потребує exact kratos_admin_allowed_remote_endpoints; default дозволяє лише loopback port-forward")
+	}
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	// Trusted executor URLs must not be rerouted by inherited HTTP(S)_PROXY.
+	transport.Proxy = nil
 	return &Client{base: strings.TrimRight(endpoint, "/"), http: &http.Client{
+		Transport:     transport,
 		Timeout:       15 * time.Second,
 		CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse },
 	}}, nil

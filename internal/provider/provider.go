@@ -43,11 +43,12 @@ type hydraProvider struct {
 }
 
 type providerModel struct {
-	KratosAdmin    types.String         `tfsdk:"kratos_admin"`
-	UserAPI        *userAPIModel        `tfsdk:"user_api"`
-	Endpoint       types.String         `tfsdk:"endpoint"`
-	RetryPolicy    *retryPolicyModel    `tfsdk:"retry_policy"`
-	Authentication *authenticationModel `tfsdk:"authentication"`
+	KratosAdminAllowedRemoteEndpoints types.Set            `tfsdk:"kratos_admin_allowed_remote_endpoints"`
+	KratosAdmin                       types.String         `tfsdk:"kratos_admin"`
+	UserAPI                           *userAPIModel        `tfsdk:"user_api"`
+	Endpoint                          types.String         `tfsdk:"endpoint"`
+	RetryPolicy                       *retryPolicyModel    `tfsdk:"retry_policy"`
+	Authentication                    *authenticationModel `tfsdk:"authentication"`
 }
 
 // userAPIModel відокремлює user execution credentials від Hydra Admin API.
@@ -112,6 +113,10 @@ func (p *hydraProvider) Schema(_ context.Context, _ provider.SchemaRequest, resp
 		Attributes: map[string]schema.Attribute{
 			"endpoint":     envAttr("Hydra Admin API base URL, e.g. `http://hydra-admin:4445`.", "HYDRA_ADMIN_URL", false),
 			"kratos_admin": envAttr("Kratos Admin API base URL; loopback HTTP supports local kubectl port-forward.", "KRATOS_ADMIN_URL", false),
+			"kratos_admin_allowed_remote_endpoints": schema.SetAttribute{
+				Optional: true, ElementType: types.StringType,
+				MarkdownDescription: "Exact trusted HTTP(S) Kratos base URLs allowed in addition to loopback. No wildcard, path, credentials, query or fragment; scheme/host/port must match byte-for-byte. Empty by default; provider configuration only, no environment opt-in. Does not grant mutation permission or replace NetworkPolicy.",
+			},
 		},
 		Blocks: map[string]schema.Block{
 			"user_api": schema.SingleNestedBlock{
@@ -183,13 +188,28 @@ func (p *hydraProvider) Configure(ctx context.Context, req provider.ConfigureReq
 
 	var users *adminapi.Client
 	var kratos *kratosadmin.Client
+	if cfg.KratosAdminAllowedRemoteEndpoints.IsUnknown() {
+		resp.Diagnostics.AddAttributeError(path.Root("kratos_admin_allowed_remote_endpoints"), "Невідомий Kratos allowlist", "Remote allowlist має бути відомим під час plan.")
+		return
+	}
+	var allowed []string
+	if !cfg.KratosAdminAllowedRemoteEndpoints.IsNull() {
+		resp.Diagnostics.Append(cfg.KratosAdminAllowedRemoteEndpoints.ElementsAs(ctx, &allowed, false)...)
+		if resp.Diagnostics.HasError() {
+			return
+		}
+	}
+	if len(allowed) > 0 && strOrEnv(cfg.KratosAdmin, "KRATOS_ADMIN_URL") == "" {
+		resp.Diagnostics.AddAttributeError(path.Root("kratos_admin_allowed_remote_endpoints"), "Відсутній kratos_admin", "Remote allowlist потребує явно налаштованого Kratos Admin endpoint.")
+		return
+	}
 	if cfg.KratosAdmin.IsUnknown() {
 		resp.Diagnostics.AddError("Невідомий kratos_admin", "Kratos Admin endpoint має бути відомим під час plan.")
 		return
 	}
 	if endpoint := strOrEnv(cfg.KratosAdmin, "KRATOS_ADMIN_URL"); endpoint != "" {
 		var err error
-		kratos, err = kratosadmin.New(endpoint)
+		kratos, err = kratosadmin.NewWithAllowedRemoteEndpoints(endpoint, allowed)
 		if err != nil {
 			resp.Diagnostics.AddError("Некоректний kratos_admin", err.Error())
 			return

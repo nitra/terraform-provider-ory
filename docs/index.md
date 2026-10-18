@@ -34,6 +34,36 @@ keys into state. Read public JWKS with the `http` data source instead.
 
 ## Example usage
 
+### Kratos endpoint policy
+
+`kratos_admin` залишається loopback-only за замовчуванням. Для trusted cluster
+executor можна явно задати `kratos_admin_allowed_remote_endpoints` у provider
+config. Це exact allowlist повних HTTP(S) base URLs: scheme, hostname та port
+мають збігатися byte-for-byte; wildcard, path, userinfo, query та fragment
+заборонені. Немає environment variable, що вмикає remote access. Чинний
+`KRATOS_ADMIN_URL` може вибирати endpoint, але не обходить allowlist.
+
+```hcl
+provider "hydra" {
+  kratos_admin = "http://platform-identities-read:8080"
+  kratos_admin_allowed_remote_endpoints = [
+    "http://platform-identities-read:8080"
+  ]
+}
+```
+
+Endpoint і allowlist визначає trusted executor configuration, не browser
+payload. Allowlist дозволяє з’єднання, а не авторизує mutations: для plan
+використовуйте GET-only proxy в окремому Pod і NetworkPolicy, що забороняє
+direct Kratos access. Для apply потрібні окремий scoped write-path та approval
+exact saved plan. Не розширюйте GET-only plan proxy до write proxy неявно.
+Redirects та inherited HTTP(S)_PROXY заборонені, HTTP timeout і body limits не змінюються;
+Kratos не успадковує Hydra authentication, retry policy або TLS bypass.
+Explicit HTTP endpoint — свідомий opt-in для ізольованої мережі, не гарантія
+TLS/authentication. DNS/egress restrictions забезпечує executor, не URL list.
+Provider policy/allowlist не є sandbox: оператор, який контролює HCL, також
+контролює allowlist. Resource schemas/state address не змінюються.
+
 ```terraform
 terraform {
   # write-only arguments (client_secret_wo) need OpenTofu >= 1.11
@@ -65,6 +95,7 @@ provider "hydra" {
 - `authentication` (Block, Optional) How to authenticate against the Admin API (it is usually only reachable in-cluster and unauthenticated). (see [below for nested schema](#nestedblock--authentication))
 - `endpoint` (String) Hydra Admin API base URL, e.g. `http://hydra-admin:4445`. Can also be set with the `HYDRA_ADMIN_URL` environment variable.
 - `kratos_admin` (String) Kratos Admin API base URL; loopback HTTP supports local kubectl port-forward. Can also be set with the `KRATOS_ADMIN_URL` environment variable.
+- `kratos_admin_allowed_remote_endpoints` (Set of String) Exact trusted HTTP(S) Kratos base URLs allowed in addition to loopback. No wildcard, path, credentials, query or fragment; scheme/host/port must match byte-for-byte. Empty by default; provider configuration only, no environment opt-in. Does not grant mutation permission or replace NetworkPolicy.
 - `retry_policy` (Block, Optional) Retry API requests that were throttled (HTTP 429) with exponential back-off. (see [below for nested schema](#nestedblock--retry_policy))
 - `user_api` (Block, Optional) Захищений execution API external користувачів. Не Kratos Admin API; endpoint і token file незалежні від Hydra credentials. (see [below for nested schema](#nestedblock--user_api))
 

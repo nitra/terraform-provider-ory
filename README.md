@@ -50,6 +50,7 @@ Hydra Admin API має бути доступним тільки довірено
 
 ## Гарантії й обмеження
 
+- `kratos_admin` лишається loopback-only за замовчуванням. Trusted cluster executors можуть явно задати exact `kratos_admin_allowed_remote_endpoints`; wildcard/environment opt-in немає. Plan GET-only proxy і apply write-path мають окремі network/approval gates. Дивіться [endpoint policy](docs/index.md#kratos-endpoint-policy).
 - `client_secret_wo` та `client_secret_wo_version` не зберігають client secret у resource state.
 - JWKS resource відсутній, щоб не переносити private keys у state; public JWKS читається через HTTP data source.
 - JSON і durations порівнюються семантично, зокрема після import.
