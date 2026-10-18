@@ -34,6 +34,36 @@ keys into state. Read public JWKS with the `http` data source instead.
 
 ## Example usage
 
+### Kratos endpoint policy
+
+`kratos_admin` залишається loopback-only за замовчуванням. Для trusted cluster
+executor можна явно задати `kratos_admin_allowed_remote_endpoints` у provider
+config. Це exact allowlist повних HTTP(S) base URLs: scheme, hostname та port
+мають збігатися byte-for-byte; wildcard, path, userinfo, query та fragment
+заборонені. Немає environment variable, що вмикає remote access. Чинний
+`KRATOS_ADMIN_URL` може вибирати endpoint, але не обходить allowlist.
+
+```hcl
+provider "hydra" {
+  kratos_admin = "http://platform-identities-read:8080"
+  kratos_admin_allowed_remote_endpoints = [
+    "http://platform-identities-read:8080"
+  ]
+}
+```
+
+Endpoint і allowlist визначає trusted executor configuration, не browser
+payload. Allowlist дозволяє з’єднання, а не авторизує mutations: для plan
+використовуйте GET-only proxy в окремому Pod і NetworkPolicy, що забороняє
+direct Kratos access. Для apply потрібні окремий scoped write-path та approval
+exact saved plan. Не розширюйте GET-only plan proxy до write proxy неявно.
+Redirects та inherited HTTP(S)_PROXY заборонені, HTTP timeout і body limits не змінюються;
+Kratos не успадковує Hydra authentication, retry policy або TLS bypass.
+Explicit HTTP endpoint — свідомий opt-in для ізольованої мережі, не гарантія
+TLS/authentication. DNS/egress restrictions забезпечує executor, не URL list.
+Provider policy/allowlist не є sandbox: оператор, який контролює HCL, також
+контролює allowlist. Resource schemas/state address не змінюються.
+
 {{ tffile "examples/provider/provider.tf" }}
 
 {{ .SchemaMarkdown | trimspace }}

@@ -7,8 +7,9 @@ description: |-
 
 # ory_platform_identity
 
-Керує наявною identity через Kratos Admin API, доступний на локальному
-`kubectl port-forward`. UUID зберігається; credentials та sessions лишаються
+Керує наявною identity через Kratos Admin API: локальний `kubectl port-forward`
+за замовчуванням або exact remote endpoint із явного provider allowlist.
+UUID зберігається; credentials та sessions лишаються
 у Kratos. Resource підтримує import/read/update. Create/recreate та фізичне delete
 заблоковані у фазі adoption; для припинення керування використайте `removed` із
 `lifecycle { destroy = false }`.
@@ -74,9 +75,13 @@ import {
 з прикладу. Перший normal plan має бути без змін. Запит використовує тільки
 GET під час import; provider не додає adoption marker і не змінює user_type.
 
-`KRATOS_ADMIN_URL` може задавати endpoint замість `kratos_admin`. HTTP дозволений
-лише через loopback `kubectl port-forward`; публічний маршрут не потрібен.
-Redirect і retry mutation відсутні.
+`KRATOS_ADMIN_URL` може задавати endpoint замість `kratos_admin`, але не дозволяє
+remote access самостійно. Для non-loopback HTTP(S) endpoint потрібен точний URL
+у `kratos_admin_allowed_remote_endpoints`; дивіться provider endpoint policy у
+`docs/index.md`. Wildcards, URL credentials/path/query/fragment заборонені.
+Публічний маршрут не потрібен. Redirect, inherited HTTP proxy і retry mutation
+відсутні. Plan GET-only та apply write-path ізолюйте окремо; allowlist не є
+авторизацією mutations або заміною NetworkPolicy.
 
 ## Конкурентні зміни й recovery
 
