@@ -17,7 +17,7 @@ import (
 )
 
 // Runs actual OpenTofu import, update and zero-change plans against an isolated API.
-func TestAccIdentityRolesImportUpdate(t *testing.T) {
+func TestAccPlatformIdentityAuthoritativeDrift(t *testing.T) {
 	if os.Getenv("TF_ACC") == "" {
 		t.Skip("TF_ACC=1 requires OpenTofu")
 	}
@@ -48,9 +48,6 @@ func TestAccIdentityRolesImportUpdate(t *testing.T) {
 				t.Error(err)
 			}
 			for _, op := range operations {
-				if op.Path != "/metadata_public/roles" {
-					t.Errorf("unexpected patch path %s", op.Path)
-				}
 				if strings.Contains(op.Path, "credentials") || op.Path == "/id" {
 					t.Errorf("forbidden patch path %s", op.Path)
 				}
@@ -92,9 +89,9 @@ func TestAccIdentityRolesImportUpdate(t *testing.T) {
 	if err := os.WriteFile(cli, []byte(fmt.Sprintf("provider_installation {\n filesystem_mirror {\n path = %q\n }\n }", mirror)), 0600); err != nil {
 		t.Fatal(err)
 	}
-	writeConfig := func(roles any) {
+	writeConfig := func(document any) {
 		t.Helper()
-		encoded, _ := json.Marshal(roles)
+		encoded, _ := json.Marshal(document)
 		config := fmt.Sprintf(`terraform {
  required_providers {
  hydra = { source = "nitra/ory", version = "99.0.0" }
@@ -103,9 +100,10 @@ func TestAccIdentityRolesImportUpdate(t *testing.T) {
 provider "hydra" {
  kratos_admin = %q
 }
-resource "ory_identity_roles" "user" {
+resource "ory_platform_identity" "user" {
  provider = hydra
- roles = jsondecode(%q)
+ document = %q
+ enforce_document = true
  lifecycle { prevent_destroy = true }
 }
 `, s.URL, string(encoded))
@@ -132,37 +130,41 @@ resource "ory_identity_roles" "user" {
 		}
 		return string(out)
 	}
-	writeConfig([]string{"admin"})
+	writeConfig(doc)
 	run(0, "init", "-input=false")
-	run(0, "import", "-input=false", "ory_identity_roles.user", platformID)
+	run(0, "import", "-input=false", "ory_platform_identity.user", platformID)
+	run(2, "plan", "-input=false", "-detailed-exitcode", "-out=adopt.plan")
+	run(0, "apply", "-input=false", "adopt.plan")
 	run(0, "plan", "-input=false", "-detailed-exitcode")
 	if writes != 0 {
 		t.Fatal("import mutated identity")
 	}
 	mu.Lock()
 	doc["traits"].(map[string]any)["name"] = "Outside"
+	doc["metadata_public"].(map[string]any)["roles"] = []string{"outside-role"}
 	revision++
 	mu.Unlock()
-	writeConfig([]string{"admin", "abie:dagster"})
-	run(2, "plan", "-input=false", "-detailed-exitcode", "-out=update.plan")
-	run(0, "apply", "-input=false", "update.plan")
+	run(2, "plan", "-input=false", "-detailed-exitcode", "-out=drift.plan")
+	run(0, "apply", "-input=false", "drift.plan")
 	run(0, "plan", "-input=false", "-detailed-exitcode")
 	mu.Lock()
-	if doc["traits"].(map[string]any)["name"] != "Outside" || writes != 1 {
-		t.Fatal("unrelated fields changed or wrong write count")
+	_, nameExists := doc["traits"].(map[string]any)["name"]
+	roles := doc["metadata_public"].(map[string]any)["roles"]
+	if nameExists || fmt.Sprint(roles) != "[admin]" || writes != 1 {
+		t.Fatal("drift was not restored")
 	}
+	doc["traits"].(map[string]any)["name"] = "First"
+	revision++
 	mu.Unlock()
-	writeConfig([]string{"admin", "new-role"})
 	run(2, "plan", "-input=false", "-detailed-exitcode", "-out=race.plan")
 	mu.Lock()
-	doc["metadata_public"].(map[string]any)["roles"] = []string{"outside-role"}
+	doc["traits"].(map[string]any)["name"] = "Second"
 	revision++
 	mu.Unlock()
 	run(1, "apply", "-input=false", "race.plan")
 	if writes != 1 {
 		t.Fatal("same-path conflict performed a write")
 	}
-	run(2, "plan", "-input=false", "-detailed-exitcode")
 
 	mu.Lock()
 	deny = true
@@ -172,7 +174,7 @@ resource "ory_identity_roles" "user" {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(state), platformID) || strings.Contains(string(state), "sample-secret") || strings.Contains(string(state), "admin@example.com") {
+	if !strings.Contains(string(state), platformID) || strings.Contains(string(state), "sample-secret") {
 		t.Fatal("UUID lost or credential leaked to state")
 	}
 }

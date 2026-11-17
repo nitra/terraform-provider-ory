@@ -24,6 +24,7 @@ Static source потрібен через змішані prefixes `hydra_*`/`ory
 | `document` | String (JSON), Sensitive | Required | Усі configurable поля identity |
 | `observed_document` | String (JSON), Sensitive | Computed | Останній прочитаний стан Kratos |
 | `revision` | String | Computed | Fingerprint документа й updated_at для спостереження |
+| `enforce_document` | Bool | Optional, default `false` | Виявляти drift усіх полів і відновлювати document із manifest |
 
 Document обов’язково містить `schema_id`, `state`, `traits`, `metadata_public`,
 `metadata_admin`, `verifiable_addresses`, `recovery_addresses`, `external_id`,
@@ -50,6 +51,7 @@ provider "hydra" {
 
 resource "ory_platform_identity" "user" {
   provider = hydra
+  enforce_document = true
   document = jsonencode({
     schema_id = "default"
     state = "active"
@@ -84,6 +86,15 @@ remote access самостійно. Для non-loopback HTTP(S) endpoint пот�
 авторизацією mutations або заміною NetworkPolicy.
 
 ## Конкурентні зміни й recovery
+
+Якщо `enforce_document = true`, refresh читає повний поточний document із Kratos,
+а наступний plan показує drift і пропонує відновити значення з manifest. Усі
+поля document, включно з traits, metadata та addresses, перебувають під
+керуванням OpenTofu. Необхідно узгодити інших writers, щоб вони не створювали
+постійний drift. Значення `document` та `observed_document` позначені Sensitive:
+переглядайте конкретні зміни у приватному Git diff і захищеному plan JSON.
+
+За замовчуванням `enforce_document = false`: зберігається попередня поведінка.
 
 `document` у state зберігає попередню бажану конфігурацію; `observed_document`
 оновлюється під час refresh. Коли ви змінюєте `document`, provider порівнює
