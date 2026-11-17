@@ -17,7 +17,7 @@ Built and tested against `oryd/hydra:v26.2.0` (the Go client is generated from t
 
 Resources:
 
-- `ory_platform_identity` — import/read/update наявних Kratos identities через `kratos_admin`, зі збереженням UUID та credentials; незалежні зовнішні зміни об'єднуються.
+- `ory_platform_identity` — import/read/update наявних Kratos identities через `kratos_admin`, зі збереженням UUID та credentials; за замовчуванням зовнішні зміни об'єднуються, з `enforce_document` manifest є бажаним станом.
 
 - `ory_external_user` — create/read/delete/import external members через окремий `user_api`, без implicit replacement.
 
