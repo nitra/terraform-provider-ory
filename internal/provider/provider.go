@@ -376,6 +376,7 @@ func (t *headerTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 func (p *hydraProvider) Resources(_ context.Context) []func() resource.Resource {
 	return []func() resource.Resource{
 		NewPlatformIdentityResource,
+		NewIdentityRolesResource,
 		NewExternalUserResource,
 		NewOAuth2ClientResource,
 		NewTrustedJWTGrantIssuerResource,
