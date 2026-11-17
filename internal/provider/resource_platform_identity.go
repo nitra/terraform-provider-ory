@@ -10,7 +10,6 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
-	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -40,7 +39,7 @@ func (r *platformIdentityResource) Schema(_ context.Context, _ resource.SchemaRe
 		"document":          schema.StringAttribute{Required: true, Sensitive: true, CustomType: jsontypes.NormalizedType{}, MarkdownDescription: "Останній бажаний JSON. Зовнішні зміни до інших JSON-шляхів зберігаються; конфлікт на зміненому шляху зупиняє apply."},
 		"observed_document": schema.StringAttribute{Computed: true, Sensitive: true, CustomType: jsontypes.NormalizedType{}, MarkdownDescription: "Останній прочитаний стан Kratos; може відрізнятися від document після зовнішніх змін."},
 		"revision":          schema.StringAttribute{Computed: true, MarkdownDescription: "Fingerprint поточного документа та updated_at для перевірки перед записом."},
-		"enforce_document":  schema.BoolAttribute{Optional: true, Computed: true, Default: booldefault.StaticBool(false), MarkdownDescription: "Якщо true, refresh виявляє drift усіх полів document і plan повертає їх до конфігурації."},
+		"enforce_document":  schema.BoolAttribute{Optional: true, MarkdownDescription: "Якщо true, refresh виявляє drift усіх полів document і plan повертає їх до конфігурації."},
 	}}
 }
 func (r *platformIdentityResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
@@ -150,5 +149,5 @@ func (r *platformIdentityResource) ImportState(ctx context.Context, req resource
 		resp.Diagnostics.AddError("Не вдалося імпортувати identity", err.Error())
 		return
 	}
-	resp.Diagnostics.Append(resp.State.Set(ctx, &platformIdentityModel{ID: types.StringValue(actual.ID), Document: jsontypes.NewNormalizedValue(string(actual.Document)), Observed: jsontypes.NewNormalizedValue(string(actual.Document)), Revision: types.StringValue(actual.Revision), Enforce: types.BoolValue(false)})...)
+	resp.Diagnostics.Append(resp.State.Set(ctx, &platformIdentityModel{ID: types.StringValue(actual.ID), Document: jsontypes.NewNormalizedValue(string(actual.Document)), Observed: jsontypes.NewNormalizedValue(string(actual.Document)), Revision: types.StringValue(actual.Revision), Enforce: types.BoolNull()})...)
 }
